@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Tasmota — MQTT UI (HiveMQ) — Telemetria em tempo real</title>
+<style>
+  :root{
+    --bg:#061024; --card:#071427; --muted:#9aa4b2; --accent:#06b6d4;
+    --ok:#10b981; --warn:#f59e0b; --danger:#ef4444; --glass:rgba(255,255,255,0.03);
+    font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Helvetica Neue";
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:linear-gradient(180deg,#04131f 0%, #061427 100%);
+    color:#e6eef6;
+    padding:18px;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  .wrap{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:380px 1fr;gap:18px;align-items:start}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.03);box-shadow:0 6px 18px rgba(0,0,0,0.45)}
+  h1{margin:0 0 8px;font-size:18px}
+  .muted{color:var(--muted);font-size:13px}
+  label{display:block;margin-top:12px;color:var(--muted);font-size:13px}
+  input, select, button, textarea{font-family:inherit}
+  input, select, textarea{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:var(--glass);color:inherit;margin-top:6px}
+  .row{display:flex;gap:8px;align-items:center}
+  .btn{display:inline-flex;gap:8px;align-items:center;justify-content:center;padding:10px 12px;border-radius:8px;border:0;cursor:pointer;color:#041022;background:var(--accent);font-weight:600}
+  .btn.ghost{background:transparent;color:var(--muted);border:1px solid rgba(255,255,255,0.03)}
+  .btn.small{padding:8px 10px;font-size:14px}
+  .power-on{background:linear-gradient(90deg,#34d399,#10b981);color:#02221b}
+  .power-off{background:linear-gradient(90deg,#fb7185,#ef4444);color:#2b0406}
+  .status-pill{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.03);font-weight:700;font-size:13px}
+  .device-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .stat{background:rgba(0,0,0,0.12);padding:12px;border-radius:10px;min-height:66px}
+  .stat .k{font-size:12px;color:var(--muted)}
+  .stat .v{font-size:16px;font-weight:800;margin-top:6px}
+  .big-power{display:flex;align-items:center;gap:12px}
+  .power-circle{width:86px;height:86px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px}
+  .power-on-circle{background:linear-gradient(90deg,#34d399,#10b981);color:#02221b}
+  .power-off-circle{background:linear-gradient(90deg,#fb7185,#ef4444);color:#2b0406}
+  pre{background:rgba(0,0,0,0.12);padding:12px;border-radius:8px;color:#cfefff;overflow:auto;max-height:520px}
+  footer{grid-column:1/-1;margin-top:14px;color:var(--muted);text-align:center;font-size:13px}
+
+  .controls{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .col-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .small-muted{font-size:12px;color:var(--muted)}
+
+  @media(max-width:980px){
+    .wrap{grid-template-columns:1fr;padding:0 8px}
+    .big-power{flex-direction:row}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Left panel: settings + controls + telemetry summary -->
+  <div class="card" id="left">
+  <h1>Tasmota — MQTT (EMQX)</h1>
+  <div class="muted">Conecte via MQTT over WebSocket (wss) e veja telemetria em tempo real. Preencha host, porta WS e credenciais do broker.</div>
+
+    <details id="advancedSettings">
+      <summary style="cursor:pointer; font-weight:700; margin-top:8px;">Configurações avançadas (mostrar/ocultar)</summary>
+
+      <div style="margin-top:10px">
+  <label>Broker host</label>
+  <input id="host" placeholder="ex: w866651a.ala.us-east-1.emqxsl.com" value="w866651a.ala.us-east-1.emqxsl.com" />
+
+  <label>WebSocket Port</label>
+  <input id="wsp" value="8084" />
+
+  <label>Path (tente /mqtt ou deixe vazio)</label>
+  <input id="path" placeholder="/mqtt" value="/mqtt" />
+
+  <label>Usuário (EMQX)</label>
+  <input id="user" placeholder="MQTT user" value="pixelvivo" />
+
+  <label>Senha (EMQX)</label>
+  <input id="pass" type="password" placeholder="MQTT password" value="pixelmonitor" />
+
+  <label>Client ID (web)</label>
+  <input id="clientId" placeholder="web_xxx" value="emqx_cloud3f34d9" />
+
+        <label>Topic do dispositivo (topic)</label>
+    <input id="devTopic" placeholder="ex: tongou_0A3878" value="tongou_0A3878" />
+
+    <label style="margin-top:8px">IP do dispositivo (LAN) — usado para checagens locais</label>
+    <input id="devIp" placeholder="ex: 192.168.0.111" value="192.168.0.111" />
+      </div>
+  <div class="muted" style="margin-top:8px;font-size:12px">Nota: a disponibilidade Wi‑Fi é inferida apenas das mensagens MQTT enviadas pelo dispositivo (STATE/RESULT/SENSOR). Se quiser garantir visibilidade imediata ao conectar, configure o Tasmota para publicar STATUS ao reconectar ou aumente o <code>TelePeriod</code>. Retained messages no broker também ajudam clientes novos a ver o estado atual.</div>
+
+    </details>
+
+  <div class="muted" style="margin-top:8px;font-size:12px">Nota rápida: este exemplo usa EMQX via WebSocket. Se o broker exigir TLS use um endpoint wss:// e a porta adequada; se usar um servidor próprio, defina o <code>path</code> conforme a configuração do broker.</div>
+
+    <div class="row" style="margin-top:12px;">
+      <button class="btn" id="connectBtn">Conectar</button>
+      <button class="btn ghost" id="disconnectBtn" disabled>Desconectar</button>
+      <div style="margin-left:auto;">
+        <span id="connStatus" class="status-pill">offline</span>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <div class="muted">Controles rápidos</div>
+      <div class="controls">
+        <button class="btn power-on" id="onBtn" disabled>LIGAR</button>
+        <button class="btn power-off" id="offBtn" disabled>DESLIGAR</button>
+        <button class="btn" id="toggleBtn" disabled>TOGGLE</button>
+        <button class="btn ghost" id="statusBtn" disabled>Solicitar Status (Status 0)</button>
+      </div>
+      <div style="margin-top:10px; display:flex;gap:8px;align-items:center;">
+        <label style="display:flex;align-items:center;gap:8px;margin:0;color:var(--muted);font-size:13px;">
+          <input type="checkbox" id="autoRefresh" checked /> Auto-refresh
+        </label>
+        <label style="color:var(--muted);font-size:13px;margin-left:6px;">Intervalo (s)</label>
+        <input id="autoRefreshInterval" type="number" min="1" value="3" style="width:70px;" />
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <div class="muted">Resumo do dispositivo</div>
+      <div id="connectivity" style="margin-top:8px; display:flex;gap:8px;align-items:center;">
+        <div class="stat" style="min-width:180px;">
+          <div class="k">Wi‑Fi (LAN)</div>
+          <div class="v" id="wifiStatus">—</div>
+          <div class="small-muted" id="wifiLastCheck">—</div>
+        </div>
+        <div class="stat" style="min-width:180px;">
+          <div class="k">MQTT</div>
+          <div class="v" id="mqttConnStatus">—</div>
+          <div class="small-muted" id="mqttLastMsg">—</div>
+        </div>
+      </div>
+      <div class="device-grid" id="deviceOverview">
+        <div class="stat">
+          <div class="k">Power</div>
+          <div class="v" id="powerVal">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">Última atualização</div>
+          <div class="v" id="lastSeen">—</div>
+        </div>
+
+        <div class="stat">
+          <div class="k">Voltagem</div>
+          <div class="v" id="voltage">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">Corrente</div>
+          <div class="v" id="current">—</div>
+        </div>
+
+        <div class="stat">
+          <div class="k">Potência</div>
+          <div class="v" id="powerW">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">Energia Total</div>
+          <div class="v" id="energyTotal">—</div>
+        </div>
+
+        <div class="stat">
+          <div class="k">Temperatura (sensor)</div>
+          <div class="v" id="temp">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">RSSI</div>
+          <div class="v" id="rssi">—</div>
+        </div>
+
+        <div class="stat" style="grid-column:1/-1">
+          <div class="k">Uptime / MqttCount</div>
+          <div class="v" id="uptime">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="muted" style="margin-top:12px;font-size:13px">Auto-subscribe (ajuste se seu tópico for diferente)</div>
+    <input id="subState" value="tele/tongou_0A3878/#" />
+    <input id="subStat" style="margin-top:6px" value="stat/tongou_0A3878/#" />
+
+  </div>
+
+  <!-- Right panel: console, raw and message list (collapsed by default) -->
+  <div class="card">
+    <details id="consoleDetails">
+      <summary style="cursor:pointer; font-weight:700;">Console & Telemetria (expandir)</summary>
+
+      <div style="margin-top:12px; display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <h1>Console & Telemetria</h1>
+          <div class="muted">Mensagens recebidas, JSON bruto e histórico (mais recente no topo).</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn ghost small" id="clearMsgs">Limpar</button>
+          <button class="btn small" id="copyRaw">Copiar último JSON</button>
+        </div>
+      </div>
+
+      <div style="margin-top:12px; display:flex;gap:14px;align-items:flex-start;">
+        <div style="flex:1 1 60%;">
+          <label>Últimas mensagens (mais recentes no topo)</label>
+          <pre id="msgLog" style="max-height:260px;">sem mensagens</pre>
+        </div>
+        <div style="width:40%; min-width:260px;">
+          <label>Última mensagem / Raw</label>
+          <pre id="rawOut" style="max-height:220px;">nenhuma</pre>
+
+          <label style="margin-top:10px">Comando manual (tópico completo ou cmnd/&lt;topic&gt;/...)</label>
+          <input id="manualTopic" placeholder="ex: cmnd/tongou_0A3878/POWER" />
+          <input id="manualPayload" placeholder="ex: ON / OFF / TOGGLE / 0 / 1" style="margin-top:6px" />
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn" id="sendManual">Enviar</button>
+            <button class="btn ghost" id="sendRetain">Enviar (QoS1)</button>
+          </div>
+
+          <div class="muted" style="margin-top:10px;font-size:13px">ConnAck / status</div>
+          <pre id="connRaw" style="margin-top:6px; max-height:120px; overflow:auto;">desconectado</pre>
+        </div>
+      </div>
+
+    </details>
+  </div>
+
+  <footer>Use TLS/WSS e credenciais seguras. Não exponha senhas em repositórios públicos.</footer>
+</div>
+
+<!-- mqtt.js -->
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script>
+(() => {
+  // Elements
+  const $ = (id) => document.getElementById(id)
+  const hostEl = $('host'), wspEl = $('wsp'), pathEl = $('path'), userEl = $('user'), passEl = $('pass'), clientIdEl = $('clientId'), devTopicEl = $('devTopic')
+  const connectBtn = $('connectBtn'), disconnectBtn = $('disconnectBtn'), connStatus = $('connStatus')
+  const onBtn = $('onBtn'), offBtn = $('offBtn'), toggleBtn = $('toggleBtn'), statusBtn = $('statusBtn')
+  const subStateEl = $('subState'), subStatEl = $('subStat')
+  const msgLog = $('msgLog'), rawOut = $('rawOut'), connRaw = $('connRaw')
+  const sendManualBtn = $('sendManual'), manualTopic = $('manualTopic'), manualPayload = $('manualPayload'), sendRetainBtn = $('sendRetain')
+  const clearMsgsBtn = $('clearMsgs'), copyRawBtn = $('copyRaw')
+
+  // Telemetry UI fields
+  const powerVal = $('powerVal'), lastSeen = $('lastSeen'), voltageEl = $('voltage'), currentEl = $('current'),
+        powerWEl = $('powerW'), energyTotalEl = $('energyTotal'), tempEl = $('temp'), rssiEl = $('rssi'), uptimeEl = $('uptime')
+
+  let client = null
+  let logs = []
+  let lastJson = null
+  let autoRefreshTimer = null
+
+  function log(s){
+    const ts = new Date().toLocaleTimeString()
+    logs.unshift(`[${ts}] ${s}`)
+    if(logs.length>500) logs.pop()
+    msgLog.textContent = logs.join('\n')
+  }
+
+  function setConn(connected){
+    connStatus.textContent = connected ? 'online' : 'offline'
+    connStatus.style.background = connected ? 'var(--ok)' : 'transparent'
+    connStatus.style.color = connected ? '#04251f' : ''
+    connectBtn.disabled = connected
+    disconnectBtn.disabled = !connected
+    onBtn.disabled = !connected
+    offBtn.disabled = !connected
+    toggleBtn.disabled = !connected
+    statusBtn.disabled = !connected
+    // manage auto-refresh timer
+    if (!connected && autoRefreshTimer) {
+      clearInterval(autoRefreshTimer); autoRefreshTimer = null
+    }
+  }
+
+  function buildWsUrl(path){
+    const host = hostEl.value.trim()
+    const port = wspEl.value.trim()
+    let p = (path||'').trim()
+    if (!host) throw new Error('Preencha host')
+    if (!port) throw new Error('Preencha porta WS')
+    if (p && !p.startsWith('/')) p = '/' + p
+    return `wss://${host}:${port}${p}`
+  }
+
+  // Update telemetry UI from parsed payloads
+  function updateFromStateObj(obj){
+    // STATE messages include POWER, Wifi, Uptime, MqttCount
+    if (!obj) return
+    if (obj.POWER !== undefined) {
+      const st = String(obj.POWER)
+      powerVal.textContent = st
+      lastSeen.textContent = new Date().toLocaleString()
+      // big style
+      if (st.toUpperCase()==='ON') {
+        powerVal.parentElement.previousElementSibling && (powerVal.parentElement.previousElementSibling.style.background='') // no-op UI hook
+      }
+    }
+    if (obj.Wifi && obj.Wifi.RSSI !== undefined) {
+      rssiEl.textContent = obj.Wifi.RSSI + ' dBm'
+    }
+    if (obj.Uptime) {
+      uptimeEl.textContent = obj.Uptime + ' • MqttCount=' + (obj.MqttCount !== undefined ? obj.MqttCount : '?')
+    }
+    // If state contains ENERGY fields maybe nested? But usually STATE doesn't contain ENERGY
+  }
+
+  function updateFromSensorObj(obj){
+    if (!obj) return
+    // Sensor payload example: {ANALOG:{Temperature1:36.0}, ENERGY:{Voltage:110, Current:0.000, Power:0, Total:0.002}}
+    if (obj.ENERGY) {
+      const e = obj.ENERGY
+      voltageEl.textContent = (e.Voltage !== undefined) ? `${e.Voltage} V` : voltageEl.textContent
+      currentEl.textContent = (e.Current !== undefined) ? `${Number(e.Current).toFixed(3)} A` : currentEl.textContent
+      powerWEl.textContent = (e.Power !== undefined) ? `${e.Power} W` : powerWEl.textContent
+      // Total can be named Total or EnergyTotal depending on Tasmota/versions
+      energyTotalEl.textContent = (e.Total !== undefined) ? `${e.Total} kWh` : (e.Today !== undefined ? `${e.Today} kWh` : energyTotalEl.textContent)
+    }
+    if (obj.ANALOG && obj.ANALOG.Temperature1 !== undefined) {
+      tempEl.textContent = `${obj.ANALOG.Temperature1} °C`
+    }
+    lastSeen.textContent = new Date().toLocaleString()
+  }
+
+  // Track last MQTT message timestamp for connectivity UI
+  let lastMessageAt = null
+  // last wifi info reported by device via MQTT (prefer this only)
+  let lastDeviceWifi = null // { ip: '192.168.0.111', rssi: -72, at: timestamp, source: 'state'|'status' }
+  const WIFI_POLL_INTERVAL = 5000
+  const MQTT_STALE_MS = 15000 // mark stale if no MQTT messages in this window
+  const STATUS_REPORT_EXPIRY_MS = 120000 // keep STATUSx reports valid longer (120s)
+
+  function markMessageReceived(){ lastMessageAt = Date.now(); document.getElementById('mqttLastMsg').textContent = 'há ' + Math.floor((Date.now()-lastMessageAt)/1000) + 's' }
+
+  // enhance handleTasmotaMessage to mark lastMessageAt
+  const _origHandle = handleTasmotaMessage
+  handleTasmotaMessage = function(topic, payloadStr){
+    markMessageReceived()
+    // update mqtt status
+    document.getElementById('mqttConnStatus').textContent = 'recebendo'
+    document.getElementById('mqttConnStatus').style.background = 'var(--ok)'
+    _origHandle(topic,payloadStr)
+  }
+
+  // Note: ping via HTTP was removed - connectivity is inferred only from MQTT-reported info
+
+  // Periodic connectivity checks (MQTT-only): show available if device reported Wifi recently
+  setInterval(()=>{
+    const el = document.getElementById('wifiStatus')
+    const lastEl = document.getElementById('wifiLastCheck')
+    const now = Date.now()
+    if (lastDeviceWifi) {
+      const expiry = (lastDeviceWifi.source === 'status') ? STATUS_REPORT_EXPIRY_MS : MQTT_STALE_MS
+      if ((now - lastDeviceWifi.at) <= expiry) {
+        el.textContent = `disponível (via device${lastDeviceWifi.source==='status' ? ' • status' : ''}) ${lastDeviceWifi.ip || ''}`.trim()
+        el.style.background = 'var(--ok)'
+        lastEl.textContent = `reportado: ${new Date(lastDeviceWifi.at).toLocaleTimeString()} • RSSI ${lastDeviceWifi.rssi ?? '—'} dBm`
+        // keep this state while valid
+        // update mqtt last message age below as usual
+      } else {
+        el.textContent = 'indisponível'
+        el.style.background = 'rgba(255,255,255,0.03)'
+        lastEl.textContent = 'sem relato recente via MQTT'
+      }
+    } else {
+      el.textContent = 'indisponível'
+      el.style.background = 'rgba(255,255,255,0.03)'
+      lastEl.textContent = 'sem relato recente via MQTT'
+    }
+    // update mqtt last message age
+    if (lastMessageAt){
+      const age = Date.now()-lastMessageAt
+      document.getElementById('mqttLastMsg').textContent = 'há ' + Math.floor(age/1000) + 's'
+      if (age > MQTT_STALE_MS){ document.getElementById('mqttConnStatus').textContent = 'sem mensagens recentes'; document.getElementById('mqttConnStatus').style.background = 'transparent' }
+    } else {
+      document.getElementById('mqttConnStatus').textContent = 'sem mensagens'; document.getElementById('mqttConnStatus').style.background = 'transparent'
+    }
+  }, WIFI_POLL_INTERVAL)
+
+  // Generic deep-parse for various Tasmota message structures
+  function handleTasmotaMessage(topic, payloadStr){
+    // payload may be JSON or plain string
+    let data = null
+    try { data = JSON.parse(payloadStr) } catch(e) { data = payloadStr }
+    lastJson = { topic, data }
+    rawOut.textContent = `${topic}\n${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}`
+    log(`Topic: ${topic}  Payload: ${typeof data === 'string' ? data : JSON.stringify(data)}`)
+
+    // Try to detect common topics
+    const tparts = topic.split('/')
+    const last = tparts[tparts.length-1].toUpperCase()
+    // tele/<topic>/STATE or tele/<topic>/SENSOR or stat/<topic>/RESULT etc.
+    if (last === 'STATE' && typeof data === 'object') {
+        // Capture Wifi info if present
+        try{
+          if (data.Wifi) {
+            lastDeviceWifi = { ip: data.Wifi.IP || data.Wifi.IPAddress || document.getElementById('devIp').value.trim(), rssi: data.Wifi.RSSI, at: Date.now(), source: 'state' }
+            const wifiEl = document.getElementById('wifiStatus'); const wifiLast = document.getElementById('wifiLastCheck')
+            wifiEl.textContent = `disponível (via device) ${lastDeviceWifi.ip || ''}`.trim()
+            wifiEl.style.background = 'var(--ok)'
+            wifiLast.textContent = `reportado: ${new Date(lastDeviceWifi.at).toLocaleTimeString()} • RSSI ${lastDeviceWifi.rssi ?? '—'} dBm`
+          }
+        }catch(e){}
+        updateFromStateObj(data)
+    } else if (last === 'SENSOR' && typeof data === 'object') {
+      updateFromSensorObj(data)
+    } else if (last === 'RESULT' && typeof data === 'object') {
+      // RESULT may include Wifi/IP depending on command output
+      try{
+        // Tasmota STATUS responses often nest data in StatusNET / StatusSTS / StatusSNS
+        if (data.Wifi) {
+          lastDeviceWifi = { ip: data.Wifi.IP || document.getElementById('devIp').value.trim(), rssi: data.Wifi.RSSI, at: Date.now(), source: 'result' }
+        } else if (data.StatusNET && data.StatusNET.IPAddress) {
+          lastDeviceWifi = { ip: data.StatusNET.IPAddress, rssi: (lastDeviceWifi && lastDeviceWifi.rssi) || null, at: Date.now(), source: 'status' }
+        } else if (data.StatusSTS && data.StatusSTS.Wifi) {
+          const w = data.StatusSTS.Wifi
+          lastDeviceWifi = { ip: w.IP || document.getElementById('devIp').value.trim(), rssi: w.RSSI || w.Signal || null, at: Date.now(), source: 'status' }
+        }
+      }catch(e){}
+      // Sometimes stat/<topic>/RESULT contains {"POWER":"ON"} etc.
+      updateFromStateObj(data)
+      updateFromSensorObj(data)
+    } else {
+      // fallback: if contains ENERGY or ANALOG or POWER fields, update
+      if (typeof data === 'object') {
+        if (data.ENERGY || data.ANALOG) updateFromSensorObj(data)
+        if (data.POWER !== undefined || data.STATE !== undefined) {
+          // some devices use STATE key for POWER
+          const obj = {}
+          if (data.POWER !== undefined) obj.POWER = data.POWER
+          if (data.STATE !== undefined) obj.POWER = data.STATE
+          updateFromStateObj(obj)
+        }
+      }
+    }
+  }
+
+  // MQTT connect logic with optional auto-try path
+  async function connectFlow(){
+    connectBtn.disabled = true
+    connRaw.textContent = 'Iniciando...'
+    setConn(false)
+    try {
+      const autoTry = true // always try path first; you can extend UI to toggle
+      const tryPaths = []
+      const userPath = pathEl.value.trim()
+      if (autoTry && userPath) tryPaths.push(userPath)
+      if (autoTry) tryPaths.push('') // try empty path as fallback
+      let connected = false
+      for (const p of tryPaths){
+        try {
+          await connectOnce(p)
+          connected = true
+          break
+        } catch (err) {
+          log('Tentativa falhou (path ' + (p||'/') + '): ' + (err && err.message ? err.message : err))
+          connRaw.textContent = 'Falha path ' + (p||'/') + ': ' + (err && err.message ? err.message : err)
+          // ensure any partial client ended
+          if (client) { try{ client.end(true) } catch(e){}; client = null }
+          await new Promise(r => setTimeout(r, 250))
+        }
+      }
+      if (!connected) throw new Error('Todas tentativas falharam')
+    } catch (err) {
+      connRaw.textContent = 'Erro conectar: ' + (err.message || err)
+      log('Erro conectar: ' + (err.message || err))
+      connectBtn.disabled = false
+      setConn(false)
+    }
+  }
+
+  // UI: ensure details are closed on load to keep focus on controls
+  document.addEventListener('DOMContentLoaded', () => {
+    try{ document.getElementById('consoleDetails').removeAttribute('open') }catch(e){}
+    try{ document.getElementById('advancedSettings').removeAttribute('open') }catch(e){}
+  })
+
+  // Quick keyboard shortcuts: A = toggle advanced settings, C = toggle console
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'A' || e.key === 'a') {
+      const adv = document.getElementById('advancedSettings'); if (adv) adv.open = !adv.open
+    }
+    if (e.key === 'C' || e.key === 'c') {
+      const con = document.getElementById('consoleDetails'); if (con) con.open = !con.open
+    }
+  })
+
+  function connectOnce(path){
+    return new Promise((resolve, reject) => {
+      const url = buildWsUrl(path)
+  const opts = {
+        // determine clientId and persist it so reconnections reuse the same id
+        clientId: (function(){
+          const ui = clientIdEl.value.trim()
+          const key = 'tasmota_web_clientId'
+          if (ui) { try{ localStorage.setItem(key, ui) }catch(e){}; return ui }
+          try{ const stored = localStorage.getItem(key); if (stored) return stored }catch(e){}
+          const gen = 'web_' + Math.random().toString(16).slice(2,10)
+          try{ localStorage.setItem(key, gen) }catch(e){}
+          return gen
+        })(),
+  username: userEl.value.trim() || undefined,
+  password: passEl.value || undefined,
+  keepalive: 60,
+  reconnectPeriod: 4000,
+  // EMQX session showed Clean Start: true; defaulting to true for v5 tests
+  clean: true,
+  // Use MQTT v5
+  protocolVersion: 5,
+  connectTimeout: 8000
+      }
+      try {
+        connRaw.textContent = `Conectando a ${url} ...`
+        client = mqtt.connect(url, opts)
+      } catch(e) {
+        return reject(e)
+      }
+
+      const tidyReject = (err) => {
+        try{ client.end(true) } catch(e){}
+        client = null
+        reject(err)
+      }
+
+      const onConnect = (connack) => {
+        connRaw.textContent = 'CONNACK: ' + JSON.stringify(connack)
+        log('Conectado (connack: ' + JSON.stringify(connack) + ')')
+        setConn(true)
+        // subscribe
+        try {
+          const s1 = subStateEl.value.trim() || (`tele/${devTopicEl.value.trim()}/#`)
+          const s2 = subStatEl.value.trim() || (`stat/${devTopicEl.value.trim()}/#`)
+          const s3 = `cmnd/${devTopicEl.value.trim()}/#` // subscribe to command namespace to monitor delivery
+          client.subscribe([s1, s2, s3], {qos:1}, (err, granted) => {
+            if (err) log('Erro subscribe: ' + err.message)
+            else log('Subscribed: ' + s1 + ' , ' + s2 + ' (granted: ' + JSON.stringify(granted) + ')')
+          })
+        } catch(e){}
+        // handlers
+        client.on('message', (topic, payload) => {
+          try { handleTasmotaMessage(topic, payload.toString()) } catch(e){ log('Erro parse mensagem: ' + e) }
+        })
+        client.on('error', (err) => {
+          connRaw.textContent = 'Erro: ' + err.message
+          log('Erro broker: ' + err.message)
+        })
+  client.on('close', () => {
+          log('Conexão fechada')
+          setConn(false)
+          connRaw.textContent = 'Desconectado'
+          // clear auto-refresh if any
+          if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null }
+        })
+  // Start auto-refresh if enabled
+  try{ startAutoRefresh() }catch(e){}
+    // also immediately request Status to prompt the device
+    try{ publish(`cmnd/${devTopicEl.value.trim()}/Status`, '0') }catch(e){}
+        resolve()
+      }
+
+      client.once('connect', onConnect)
+      client.once('error', tidyReject)
+
+      // safety timeout
+      setTimeout(() => {
+        if (!client || !client.connected) {
+          tidyReject(new Error('timeout conectar'))
+        }
+      }, opts.connectTimeout + 400)
+    })
+  }
+
+  // Publishes
+  function publish(topic, payload, opts={}){
+    if (!client || !client.connected) {
+      connRaw.textContent = 'Não conectado'
+      return
+    }
+    client.publish(topic, String(payload), opts, (err) => {
+      if (err) log('Erro publish: ' + err.message)
+      else log(`Publicado ${topic} <- ${payload}`)
+    })
+  }
+
+  // UI events
+  connectBtn.addEventListener('click', () => connectFlow())
+  disconnectBtn.addEventListener('click', () => {
+    if (!client) return
+    client.end(true, () => {
+      log('Desconectado (usuário)')
+      setConn(false)
+      connRaw.textContent = 'Desconectado (usuário)'
+      client = null
+      connectBtn.disabled = false
+    })
+  })
+
+  onBtn.addEventListener('click', () => {
+  publish(`cmnd/${devTopicEl.value.trim()}/POWER`, 'ON', {qos:1})
+  })
+  offBtn.addEventListener('click', () => {
+  publish(`cmnd/${devTopicEl.value.trim()}/POWER`, 'OFF', {qos:1})
+  })
+  toggleBtn.addEventListener('click', () => {
+  publish(`cmnd/${devTopicEl.value.trim()}/POWER`, 'TOGGLE', {qos:1})
+  })
+  statusBtn.addEventListener('click', () => {
+  publish(`cmnd/${devTopicEl.value.trim()}/Status`, '0', {qos:1})
+  })
+
+  // Auto-refresh logic: when connected and autoRefresh checked, publish Status 0 every N seconds
+  function startAutoRefresh(){
+    const box = document.getElementById('autoRefresh')
+    const iv = parseInt(document.getElementById('autoRefreshInterval').value,10) || 3
+    if (!box || !box.checked) return
+    // clear previous
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer)
+    // Publish once immediately to get fresh values without waiting the first interval
+    try { if (client && client.connected) publish(`cmnd/${devTopicEl.value.trim()}/Status`, '0') } catch(e){}
+    autoRefreshTimer = setInterval(()=>{
+      if (client && client.connected) {
+        try { publish(`cmnd/${devTopicEl.value.trim()}/Status`, '0') } catch(e){}
+      }
+    }, Math.max(1000, iv*1000))
+  }
+
+  document.getElementById('autoRefresh').addEventListener('change', ()=>{
+    if (document.getElementById('autoRefresh').checked) startAutoRefresh(); else { if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer=null } }
+  })
+  document.getElementById('autoRefreshInterval').addEventListener('change', ()=>{ if (document.getElementById('autoRefresh').checked) startAutoRefresh() })
+
+  sendManualBtn.addEventListener('click', () => {
+    const t = manualTopic.value.trim()
+    const p = manualPayload.value.trim()
+    if (!t || !p) { connRaw.textContent = 'Preencha tópico e payload'; return }
+    publish(t, p)
+  })
+  sendRetainBtn.addEventListener('click', () => {
+    const t = manualTopic.value.trim()
+    const p = manualPayload.value.trim()
+    if (!t || !p) { connRaw.textContent = 'Preencha tópico e payload'; return }
+    publish(t, p, {qos:1})
+  })
+
+  clearMsgsBtn.addEventListener('click', () => { logs = []; msgLog.textContent = 'sem mensagens'; rawOut.textContent='nenhuma'; connRaw.textContent=''; })
+  copyRawBtn.addEventListener('click', () => {
+    if (!lastJson) { connRaw.textContent = 'Nenhum JSON para copiar'; return }
+    navigator.clipboard?.writeText(JSON.stringify(lastJson, null, 2)).then(()=>{ connRaw.textContent = 'JSON copiado.' }).catch(()=>{ connRaw.textContent = 'Falha ao copiar' })
+  })
+
+  // Initial UI state
+  setConn(false)
+  log('Pronto. Preencha host/user/pass e clique Conectar.')
+
+  // Expose for debug in console
+  window.__tasmotaUI = {
+    publish: (t,p) => publish(t,p),
+    clientInfo: () => client ? client.options : null
+  }
+})();
+</script>
+</body>
+</html>
